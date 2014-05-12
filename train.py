@@ -8,10 +8,12 @@ import glob
 from subprocess import Popen, PIPE
 import cPickle
 import time
+import csv
+from collections import defaultdict
 
 
-
-from scripts.config_manager import Cconfig_manager
+from scripts import lexicons as lexicons_manager
+from scripts.config_manager import Cconfig_manager, internal_config_filename
 from scripts.extract_features import extract_features_from_kaf_naf_file
 from scripts.crfutils import extract_features_to_crf    
 from scripts.extract_feats_relations import create_rel_exp_tar_training, create_rel_exp_hol_training
@@ -23,7 +25,6 @@ from KafNafParserPy import KafNafParser
 #Globa configuration
 my_config_manager = Cconfig_manager()
 
-logging.basicConfig(stream=sys.stderr,format='%(asctime)s - %(levelname)s\n %(message)s', level=logging.DEBUG)
 __this_folder = os.path.dirname(os.path.realpath(__file__))
 
 
@@ -32,7 +33,13 @@ def save_obj_to_file(obj,filename):
     cPickle.dump(obj,fic)
     fic.close()
 
-def create_folders():
+def create_folders(config_filename):
+    global my_config_manager
+        
+    # Read configuration from the config file
+    my_config_manager.set_current_folder(__this_folder)
+    my_config_manager.set_config(config_filename)
+    
     out_folder = my_config_manager.get_output_folder()
 
    
@@ -45,6 +52,10 @@ def create_folders():
     
     os.mkdir(out_folder)
     logging.debug('Created '+out_folder)
+
+    #Copy the config filename to out_folder/config.cfg
+    my_cfg = os.path.join(out_folder,internal_config_filename)
+    shutil.copyfile(config_filename,my_cfg)
 
     feat_folder = my_config_manager.get_feature_folder_name()
     logging.debug('Created '+feat_folder)
@@ -78,10 +89,14 @@ def create_folders():
     template_folder = my_config_manager.get_feature_template_folder_name()
     os.mkdir(template_folder)
     logging.debug('Created '+template_folder)
-    
+        
     ##Copy template files
     my_config_manager.copy_feature_templates()
 
+    ##Folder for lexicons
+    lexicons_folder = my_config_manager.get_lexicons_folder()
+    os.mkdir(lexicons_folder)
+    logging.debug('Created '+lexicons_folder)
 
 def load_training_files():
     file_training_files_cfg = my_config_manager.get_file_training_list()
@@ -102,7 +117,8 @@ def load_training_files():
         sys.exit(-1)
     return train_files
     
-    
+
+             
 def extract_all_features():
     train_files = load_training_files()
     logging.debug('Loaded '+str(len(train_files))+' files')
@@ -117,9 +133,61 @@ def extract_all_features():
     rel_exp_hol_filename = my_config_manager.get_relation_exp_hol_training_filename()
     exp_hol_rel_fic = open(rel_exp_hol_filename,'w') 
     
+    ### LEXICON FROM THE DOMAIN
+    expressions_lexicon = None
+    targets_lexicon = None
+    if my_config_manager.get_use_training_lexicons():
+        # Create the lexicons
+        
+        ##GUESS THE LANG:
+        first_train_file = train_files[0]
+        obj = KafNafParser(first_train_file)
+        lang = obj.get_language()
+        
+        expression_lexicon_filename = my_config_manager.get_expression_lexicon_filename()
+        target_lexicon_filename = my_config_manager.get_target_lexicon_filename()
+        
+        
+        this_exp_lex = my_config_manager.get_use_this_expression_lexicon()            
+        this_tar_lex = my_config_manager.get_use_this_target_lexicon()
+
+        
+        if this_exp_lex is None or this_tar_lex is None:
+            path_to_lex_creator = '/home/izquierdo/opener_repos/opinion-domain-lexicon-acquisition/acquire_from_annotated_data.py'
+            training_filename = my_config_manager.get_file_training_list()
+            lexicons_manager.create_lexicons(path_to_lex_creator,training_filename,expression_lexicon_filename,target_lexicon_filename)
+        
+        ##Once created we have to copy the previous one in case:
+        if this_exp_lex is not None:
+            if "$LANG" in this_exp_lex:
+                this_exp_lex = this_exp_lex.replace('$LANG',lang)
+            shutil.copy(this_exp_lex, expression_lexicon_filename)
+            
+        if this_tar_lex is not None:
+            if "$LANG" in this_tar_lex:
+                this_tar_lex = this_tar_lex.replace('$LANG',lang)
+            shutil.copy(this_tar_lex,target_lexicon_filename)
+        
+        expressions_lexicon = lexicons_manager.load_lexicon(expression_lexicon_filename)
+        targets_lexicon =  lexicons_manager.load_lexicon(target_lexicon_filename)
+        
+        this_propagation_lexicon = my_config_manager.get_propagation_lexicon_name()
+        if this_propagation_lexicon is not None:
+            if "$LANG" in this_propagation_lexicon:
+                this_propagation_lexicon = this_propagation_lexicon.replace('$LANG',lang)
+                
+        print>>sys.stderr,'Propagated lexicon',this_propagation_lexicon
+        
+        
+        
+
+    ## Configuration for the relational alcasifier
+    use_deps_now = my_config_manager.get_use_dependencies()
+    use_toks_lems_now = my_config_manager.get_use_tokens_lemmas()
       
     accepted_opinions = my_config_manager.get_mapping_valid_opinions()
-    
+    use_dependencies_now = my_config_manager.get_use_dependencies()
+    polarities_found_and_skipped = []
     for num_file, train_file in enumerate(train_files):
         logging.debug('Extracting features '+os.path.basename(train_file))
         base_name = os.path.basename(train_file)
@@ -131,17 +199,37 @@ def extract_all_features():
         if True:
             kaf_naf_obj = KafNafParser(train_file)
             
-            label_feats, separator = extract_features_from_kaf_naf_file(kaf_naf_obj,out_file,err_file, accepted_opinions=accepted_opinions)
+            label_feats, separator, pols_skipped_this = extract_features_from_kaf_naf_file(kaf_naf_obj,out_file,err_file, 
+                                                                                           accepted_opinions=accepted_opinions, 
+                                                                                           exp_lex=expressions_lexicon, 
+                                                                                           tar_lex=targets_lexicon,
+                                                                                           propagation_lex_filename=this_propagation_lexicon)
+            polarities_found_and_skipped.extend(pols_skipped_this)
             print>>exp_tar_rel_fic,'#'+train_file
             print>>exp_hol_rel_fic,'#'+train_file
             # SET valid_opinions to None to use all the possible opinions in the KAF file for extracitng relations 
-            create_rel_exp_tar_training(kaf_naf_obj, output=exp_tar_rel_fic, valid_opinions=accepted_opinions)
-            create_rel_exp_hol_training(kaf_naf_obj ,output=exp_hol_rel_fic, valid_opinions=accepted_opinions) 
+            create_rel_exp_tar_training(kaf_naf_obj, output=exp_tar_rel_fic, valid_opinions=accepted_opinions,use_dependencies=use_dependencies_now,use_tokens=use_toks_lems_now,use_lemmas=use_toks_lems_now)
+            create_rel_exp_hol_training(kaf_naf_obj ,output=exp_hol_rel_fic, valid_opinions=accepted_opinions,use_dependencies=use_dependencies_now,use_tokens=use_toks_lems_now,use_lemmas=use_toks_lems_now)
         if False:
         #except Exception as e:
             sys.stdout, sys.stderr = my_stdout, my_stderr
             print>>sys.stderr,str(e),dir(e)
             pass
+        
+    ##Show just for information how many instances have been skipped becase the polarity of opinion expression was not allowed
+    count = defaultdict(int)
+    for exp_label in polarities_found_and_skipped:
+        count[exp_label] += 1
+    info = '\nOpinions skipped because the polarity label is not included in the configuration\n'
+    info += 'Accepted opinions: '+' '.join(accepted_opinions.keys())+'\n'
+    info += 'Number of complete opinions skipped\n'
+    for label, c in count.items():
+        info+=' '+label+' :'+str(c)+'\n'
+    info+='\n'
+    logging.debug(info)
+    ###################################################
+    
+    
         
     #Re-set the stdout and stderr
     exp_tar_rel_fic.close()
@@ -425,17 +513,14 @@ def write_to_flag(msg,openas='a'):
     my_time = time.strftime('%Y-%m-%dT%H:%M:%S%Z')
     flag.write(msg+' --> '+my_time+'\n')
     flag.close() 
-
-if __name__ == '__main__':
-    file_config = sys.argv[1]
     
-    # Read configuration from the config file
-    my_config_manager.set_current_folder(__this_folder)
-    my_config_manager.set_config(file_config)
+def train_all(file_config):
+  
+
       
     
     # Check if the output folder exists or create it
-    create_folders()
+    create_folders(file_config)
     write_to_flag('Beginning\n','w')
        
     #Will create the subfolder out_folder/subfolder_feats with files *feat
@@ -473,8 +558,9 @@ if __name__ == '__main__':
     write_to_flag('FINISHED ')
     
     
-    
-
-    
-    
+if __name__ == '__main__':
+    logging.basicConfig(stream=sys.stderr,format='%(asctime)s - %(levelname)s\n %(message)s', level=logging.DEBUG)
+    file_config = sys.argv[1]
+    train_all(file_config)
+           
     sys.exit(0)
