@@ -2,6 +2,7 @@
 
 ##Introduction##
 
+
 Opinion miner based on machine learning that can be trained using a list of
 KAF/NAF files. It is important to notice that the opinion miner module will not call
 to any external module to obtain features. It will read all the features from the input KAF/NAF file,
