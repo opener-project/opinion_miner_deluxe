@@ -29,9 +29,16 @@ def create_lexicons(path_to_script, training_file,exp_filename, tar_filename):
 def load_lexicon(lexicon_filename):
     ### LEXICON FROM THE DOMAIN
     fd = open(lexicon_filename,'rb')
+<<<<<<< HEAD
     dialect = csv.Sniffer().sniff(fd.read(1024))
     fd.seek(0)
     lex_reader = csv.reader(fd,dialect)
+=======
+    ##dialect = csv.Sniffer().sniff(fd.read(1024))
+    ##fd.seek(0)
+    #lex_reader = csv.reader(fd,dialect)
+    lex_reader = csv.reader(fd,delimiter=';')
+>>>>>>> upstream/master
     my_lexicon = {}
     for n,row in enumerate(lex_reader):
         if n != 0:
