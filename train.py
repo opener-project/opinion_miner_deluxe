@@ -13,7 +13,7 @@ from collections import defaultdict
 
 
 from scripts import lexicons as lexicons_manager
-from scripts.config_manager import Cconfig_manager, internal_config_filename
+from scripts.config_manager import Cconfig_manager
 from scripts.extract_features import extract_features_from_kaf_naf_file
 from scripts.crfutils import extract_features_to_crf    
 from scripts.extract_feats_relations import create_rel_exp_tar_training, create_rel_exp_hol_training
@@ -54,7 +54,7 @@ def create_folders(config_filename):
     logging.debug('Created '+out_folder)
 
     #Copy the config filename to out_folder/config.cfg
-    my_cfg = os.path.join(out_folder,internal_config_filename)
+    my_cfg = os.path.join(out_folder)
     shutil.copyfile(config_filename,my_cfg)
 
     feat_folder = my_config_manager.get_feature_folder_name()

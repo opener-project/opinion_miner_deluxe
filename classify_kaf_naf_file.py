@@ -1,7 +1,15 @@
 #!/usr/bin/env python
 
 import sys
+import getopt
 import os
+
+this_folder = os.path.dirname(os.path.realpath(__file__))
+
+# This updates the load path to ensure that the local site-packages directory
+# can be used to load packages (e.g. a locally installed copy of lxml).
+sys.path.append(os.path.join(this_folder, '../site-packages/pre_build'))
+
 import csv
 from tempfile import NamedTemporaryFile
 from subprocess import Popen, PIPE
@@ -10,7 +18,7 @@ import cPickle
 import argparse
 
 from scripts import lexicons as lexicons_manager
-from scripts.config_manager import Cconfig_manager, internal_config_filename
+from scripts.config_manager import Cconfig_manager
 from scripts.extract_features import extract_features_from_kaf_naf_file
 from scripts.crfutils import extract_features_to_crf 
 from scripts.link_entities_distance import link_entities_distance
@@ -337,7 +345,7 @@ def add_opinions_to_knaf(triples,knaf_obj,text_for_tid,ids_used, map_to_terms=Tr
 #Config file must be a string filename
 def tag_file_with_opinions(input_file_stream, output_file_stream,model_folder,kaf_obj=None, remove_existing_opinions=True,include_polarity_strength=True,timestamp=True):
     
-    config_filename = os.path.join(model_folder,internal_config_filename)
+    config_filename = os.path.join(model_folder)
     if not os.path.exists(config_filename):
         print>>sys.stderr,'Config file not found on:',config_filename
         sys.exit(-1)
